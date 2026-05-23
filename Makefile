@@ -6,9 +6,6 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = HelloGuestAudioFix
 
 HelloGuestAudioFix_FILES = Tweak.xm
-HelloGuestAudioFix_LOGOS_DEFAULT_FILESYSTEM = exige
-
-# FORCE THEOS TO USE INTERNAL SUBSTRATE FALLBACKS INSTEAD OF CYDIASUBSTRATE
-HelloGuestAudioFix_LDFLAGS = -static-libsubstrate
+HelloGuestAudioFix_FRAMEWORKS = UIKit AVFoundation
 
 include $(THEOS_MAKE_PATH)/tweak.mk
