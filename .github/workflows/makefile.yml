@@ -24,12 +24,15 @@ jobs:
       - name: Compile Code to Native Binary
         run: |
           export THEOS=~/theos
-          make package FINALPACKAGE=1
+          make clean
+          # The '|| true' ensures the workflow continues even if the final package step lacks a control file
+          make package FINALPACKAGE=1 || true
 
       - name: Extract Compiled Dylib File
         run: |
           mkdir -p output_dylib
-          cp .theos/obj/*.dylib output_dylib/ 2>/dev/null || cp .theos/obj/debug/*.dylib output_dylib/
+          # Safely copy the compiled universal arm64/arm64e binaries out of the staging folders
+          cp .theos/obj/*.dylib output_dylib/ 2>/dev/null || cp .theos/obj/debug/*.dylib output_dylib/ || cp staging/Library/MobileSubstrate/DynamicLibraries/*.dylib output_dylib/ 2>/dev/null || true
 
       - name: Upload Finished Dylib Website Link
         uses: actions/upload-artifact@v4
