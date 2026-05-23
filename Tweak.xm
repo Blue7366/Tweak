@@ -2,7 +2,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <dlfcn.h>
 
-// Keep our successful audio stabilization logic running
+// Keep our successful audio stabilization running
 void stabilize_ios_audio() {
     NSError *error = nil;
     AVAudioSession *session = [AVAudioSession sharedInstance];
@@ -19,46 +19,66 @@ void stabilize_ios_audio() {
     }
 }
 
-// Custom overlay button to trigger the Unreal Console gesture manually
-@interface UEConsoleButton : UIButton
+// A sleek floating container that holds both the trigger and close actions
+@interface UEConsolePanel : UIView
+@property (nonatomic, strong) UIButton *consoleButton;
+@property (nonatomic, strong) UIButton *closeButton;
 @end
 
-@implementation UEConsoleButton
+@implementation UEConsolePanel
 
-- (instancetype)initWithFrame:(CGRect)frame {
+- (instancetype)init {
+    // Positioning in the top right corner safely away from notch layouts
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    CGFloat panelWidth = 140;
+    CGFloat panelHeight = 35;
+    CGRect frame = CGRectMake(screenBounds.size.width - panelWidth - 20, 50, panelWidth, panelHeight);
+    
     if (self = [super initWithFrame:frame]) {
-        self.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.6];
-        [self setTitle:@"~ Console" forState:UIControlStateNormal];
-        self.titleLabel.font = [UIFont fontWithName:@"Courier-Bold" size:14];
-        [self setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
+        self.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.75];
         self.layer.cornerRadius = 8;
         self.layer.borderWidth = 1;
         self.layer.borderColor = [UIColor greenColor].CGColor;
-        [self addTarget:self action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
+        self.tag = 13377331;
+        
+        // 1. The primary button to open the Unreal Engine Console
+        self.consoleButton = [[UIButton alloc] initWithFrame:CGRectMake(5, 0, 100, 35)];
+        [self.consoleButton setTitle:@"~ Console" forState:UIControlStateNormal];
+        self.consoleButton.titleLabel.font = [UIFont fontWithName:@"Courier-Bold" size:13];
+        [self.consoleButton setTitleColor:[UIColor greenColor] forState:UIControlStateNormal];
+        [self.consoleButton addTarget:self action:@selector(consoleTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.consoleButton];
+        
+        // 2. The tiny button to completely remove/hide the interface from view
+        self.closeButton = [[UIButton alloc] initWithFrame:CGRectMake(110, 0, 25, 35)];
+        [self.closeButton setTitle:@"✕" forState:UIControlStateNormal];
+        self.closeButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightBold];
+        [self.closeButton setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+        [self.closeButton addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.closeButton];
     }
     return self;
 }
 
-- (void)buttonTapped {
-    NSLog(@"[ConsoleFix] Console button tapped! Attempting to dispatch console toggle command...");
+- (void)consoleTapped {
+    NSLog(@"[ConsoleFix] Dispatching console engine query...");
     
-    // Look up the core Unreal Engine execution command array or center viewport dynamically
-    // This sends a direct engine command string to toggle the console view
     void* gEngine = dlsym(RTLD_DEFAULT, "GEngine");
     if (gEngine) {
-        // If the global engine pointer is found, we can attempt to pass an execution command string
-        // For standard shipping builds, generating a 4-finger tap gesture or calling the UI directly is safer:
-        UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-        if (keyWindow) {
-            // Simulate an engine console-activation event notification internally
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"UIConsoleActivateNotification" object:nil];
-        }
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"UIConsoleActivateNotification" object:nil];
     } else {
-        // Fallback: Post a standard system alert notifying that lookups are processing
-        UIViewController *rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        // Modern iOS 13+ compliant scene search to grab the active view controller without using .keyWindow
+        UIViewController *rootVC = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                rootVC = ((UIWindowScene *)scene).windows.firstObject.rootViewController;
+                break;
+            }
+        }
+        
         if (rootVC) {
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"UE Console" 
-                                                                           message:@"Attempting console call via fallback execution loop." 
+                                                                           message:@"Console call routed via active scene fallback." 
                                                                     preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
             [rootVC presentViewController:alert animated:YES completion:nil];
@@ -66,34 +86,38 @@ void stabilize_ios_audio() {
     }
 }
 
+- (void)closeTapped {
+    NSLog(@"[ConsoleFix] User requested panel hide. Removing panel from superview.");
+    [self removeFromSuperview];
+}
+
 @end
 
-// Monitor the UI window initialization so we can cleanly stick our button on the screen
+// Monitor the UI window mapping to place the modern panel frame safely
 %hook UIWindow
-- (void)becomeKeyWindow {
+- (void)makeKeyAndVisible {
     %orig;
     
-    // Avoid double-creating the button if the window cycles
-    if ([self viewWithTag:13377331]) return;
+    // Check connectedScenes to target only standard app interactive interfaces
+    UIWindowScene *scene = self.windowScene;
+    if (!scene) return;
     
-    NSLog(@"[ConsoleFix] App UI window detected. Injecting floating overlay button...");
+    // Check if the current window or scene already has our interface active
+    for (UIView *subview in self.subviews) {
+        if (subview.tag == 13377331) return;
+    }
     
-    // Position the button safely near the top edge of your screen
-    CGRect buttonFrame = CGRectMake(40, 40, 100, 35);
-    UEConsoleButton *consoleBtn = [[UEConsoleButton alloc] initWithFrame:buttonFrame];
-    consoleBtn.tag = 13377331;
-    
-    [self addSubview:consoleBtn];
-    [self bringSubviewToFront:consoleBtn];
+    NSLog(@"[ConsoleFix] Attaching clean console container panel into active Window Scene context.");
+    UEConsolePanel *panel = [[UEConsolePanel alloc] init];
+    [self addSubview:panel];
+    [self bringSubviewToFront:panel];
 }
 %end
 
-// Constructor loop run instantly when the application finishes loading dependencies
+// Core binary constructor block called on injection initialization
 __attribute__((constructor)) static void initialize_console_tweak() {
     @autoreleasepool {
-        NSLog(@"[ConsoleFix] Universal Dev Tweak successfully loaded.");
-        
-        // Stabilize audio right out of the gate so it doesn't crash
+        NSLog(@"[ConsoleFix] Universal Dev Tweak initialized.");
         stabilize_ios_audio();
     }
 }
