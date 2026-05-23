@@ -1,31 +1,25 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
+#import <substrate.h>
 
-// Declare the Unreal Engine C++ functions we want to hook
-// UE4 uses mangled or standard C symbols depending on the build
-extern "C" bool _ZN15FIOSAudioDevice10InitDeviceEv(void* self); 
+// Define a function pointer signature matching the original InitDevice function
+typedef bool (*InitDeviceFunc)(void* self);
+static InitDeviceFunc orig_InitDevice = NULL;
 
-// Hooking the native C++ initialization of the iOS Audio Device in Unreal
-%hookf(bool, _ZN15FIOSAudioDevice10InitDeviceEv, void* self) {
-    
+// Our custom hook logic that replaces the original function
+bool hooked_InitDevice(void* self) {
     // FORCE iOS into a backward-compatible standard audio state 
     // BEFORE Unreal Engine attempts to poll the hardware pointers.
     NSError *error = nil;
     AVAudioSession *session = [AVAudioSession sharedInstance];
     
     @try {
-        // Use Ambient category so it doesn't strictly lock the hardware pipeline
         [session setCategory:AVAudioSessionCategoryAmbient 
                  withOptions:AVAudioSessionCategoryOptionMixWithOthers 
                        error:&error];
         
-        // Legacy games usually expect a hardcoded 44.1kHz sample rate. 
-        // Modern iOS 26 defaults to variable rates or 48kHz, which causes the pointer mismatch.
         [session setPreferredSampleRate:44100.0 error:&error];
-        
-        // Force a standard buffer size (1024 samples) to prevent buffer underflow null pointers
         [session setPreferredIOBufferDuration:0.0232 error:&error];
-        
         [session setActive:YES error:&error];
         
         NSLog(@"[AudioFix] Successfully reset AVAudioSession to legacy fallback parameters.");
@@ -33,11 +27,14 @@ extern "C" bool _ZN15FIOSAudioDevice10InitDeviceEv(void* self);
         NSLog(@"[AudioFix] Failed to safely configure AVAudioSession: %@", exception.reason);
     }
 
-    // Execute the original engine initialization code
-    bool result = %orig(self);
+    // Call the original engine initialization code using our pointer
+    bool result = false;
+    if (orig_InitDevice) {
+        result = orig_InitDevice(self);
+    }
     
     // If the engine failed to init because it still found nothing, 
-    // returning true can sometimes force the engine loop to stay alive instead of throwing a null crash.
+    // forcing true can prevent the Null Pointer crash downstream.
     if (!result) {
         NSLog(@"[AudioFix] Original InitDevice returned false. Forcing True to prevent crash.");
         return true; 
@@ -46,17 +43,18 @@ extern "C" bool _ZN15FIOSAudioDevice10InitDeviceEv(void* self);
     return result;
 }
 
-// Safety fallback: Intercept system interruptions that might clear the memory address mid-game
-%hook UnityAppController // Often acts as a baseline if UE4 uses standard lifecycle delegates
--(void)audioSessionInterruption:(NSNotification*)notification {
-    NSDictionary *interruptionDict = notification.userInfo;
-    NSInteger interruptionType = [[interruptionDict valueForKey:AVAudioSessionInterruptionTypeKey] integerValue];
-    
-    if (interruptionType == AVAudioSessionInterruptionTypeBegan) {
-        // Prevent the OS from aggressively tearing down the audio engine immediately
-        NSLog(@"[AudioFix] Intercepted audio interruption to protect mixer thread.");
-        return;
+// Cydia Substrate initialization block
+%ctl{init} {
+    @autoreleasepool {
+        // Look up the mangled C++ symbol dynamically at runtime using MSFindSymbol
+        // This stops the compiler from throwing a linker error during compilation.
+        void *symbol = MSFindSymbol(NULL, "_ZN15FIOSAudioDevice10InitDeviceEv");
+        
+        if (symbol) {
+            NSLog(@"[AudioFix] Found FIOSAudioDevice::InitDevice symbol dynamically!");
+            MSHookFunction(symbol, (void *)hooked_InitDevice, (void **)&orig_InitDevice);
+        } else {
+            NSLog(@"[AudioFix] Warning: Could not find the audio init symbol in the current image.");
+        }
     }
-    %orig;
 }
-%end
