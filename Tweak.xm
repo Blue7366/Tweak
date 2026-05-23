@@ -26,14 +26,13 @@ bool hooked_InitDevice(void* self) {
     }
 
     // Call the original engine initialization code if we resolved it
-    bool result = false;
     if (orig_InitDevice) {
-        result = orig_InitDevice(self);
+        orig_InitDevice(self);
     } else {
         // Fallback: If we couldn't resolve the original pointer, find it via default image lookups
         InitDeviceFunc nativeInit = (InitDeviceFunc)dlsym(RTLD_DEFAULT, "_ZN15FIOSAudioDevice10InitDeviceEv");
         if (nativeInit) {
-            result = nativeInit(self);
+            nativeInit(self);
         }
     }
     
@@ -51,10 +50,6 @@ __attribute__((constructor)) static void initialize_audio_fix() {
         if (symbol) {
             NSLog(@"[AudioFix] Located dynamic symbol match at address: %p", symbol);
             orig_InitDevice = (InitDeviceFunc)symbol;
-            
-            // To safely hot-patch a closed binary without Substrate on retail iOS, 
-            // the cleanest route via sideloading is letting dlsym intercept the mapping,
-            // or assigning our hook function to handle the active audio state.
         } else {
             NSLog(@"[AudioFix] Primary symbol lookups deferred until runtime initialization.");
         }
