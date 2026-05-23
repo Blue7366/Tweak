@@ -43,8 +43,8 @@ bool hooked_InitDevice(void* self) {
     return result;
 }
 
-// Cydia Substrate initialization block
-%ctl{init} {
+// Standard C++ Constructor (Executes automatically when the dylib loads)
+__attribute__((constructor)) static void initialize_audio_fix() {
     @autoreleasepool {
         // Look up the mangled C++ symbol dynamically at runtime using MSFindSymbol
         // This stops the compiler from throwing a linker error during compilation.
